@@ -30,7 +30,6 @@ kpoints_file = kpg.generate_kpoints(
     mindistance=0.2,  # Required parameter
     vasp_directory="./my_vasp_calculation",  # Optional, defaults to current dir
     precalc_params={  # Optional additional parameters for PRECALC
-        "MINDISTANCE" : "35.0",
         "WRITE_LATTICE_VECTORS": "True",
         "HEADER" : "VERBOSE",
         "INCLUDEGAMMA" : "AUTO",
@@ -73,6 +72,12 @@ kpg.generate_kpoints(
 )
 ```
 
+## PRECALC Configuration
+
+The package includes a [PRECALC_template](PRECALC_template) file in the root directory that lists all available configuration options. You can use this as a reference when setting parameters for k-point grid generation.
+
+The basic required parameter is `MINDISTANCE`, but many other options are available for fine-tuning the grid.
+
 ### Command-line PRECALC Parameters
 
 You can specify additional parameters for the PRECALC file through the command line:
@@ -93,8 +98,11 @@ This package bundles the Java-based k-point grid generator and provides a Python
 
 ## License
 
-[MIT License](LICENSE)
+[APACHE License](LICENSE-APACHE)
 
 ## Acknowledgments
 
 This package is a wrapper around the k-point grid generator developed by the Mueller Group at Johns Hopkins University.
+
+- [GitLab original repo](https://gitlab.com/muellergroup/k-pointGridGenerator)
+- [Group website](https://muellergroup.jhu.edu/K-Points.html)

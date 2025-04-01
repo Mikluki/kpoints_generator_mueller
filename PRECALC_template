@@ -52,8 +52,9 @@ HEADER = VERBOSE
 # If TRUE, generting vectors of the k-point grid will
 # be used. Otherwise, explicit list of k-points will be
 # written out.
-
-WRITE_LATTICE_VECTORS=True
+# `=TRUE` might result in errors if used with VASP versions before 6. 
+# For earlier VASP versions, we recommend setting to FALSE.
+# WRITE_LATTICE_VECTORS=True
 
 ########################################################
 # The below parameters control the grid density.  Any  #
