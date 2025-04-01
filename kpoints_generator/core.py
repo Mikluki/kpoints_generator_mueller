@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pkg_resources
 
+from .logs import LOGGER
+
 
 class KPointsGenerationError(Exception):
     """Exception raised when k-points generation fails."""
@@ -68,7 +70,7 @@ def generate_kpoints(
         precalc_path_user = vasp_directory / "PRECALC"
         with open(precalc_path_user, "w") as f:
             f.write(precalc_content)
-        print(f"Saved PRECALC file to: {precalc_path_user}")
+        LOGGER.info(f"Saved PRECALC file to: {precalc_path_user}")
 
     # Create a temporary directory for processing
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -100,7 +102,7 @@ def generate_kpoints(
 
         # Run the script with real-time output
         try:
-            print("\n--- Running k-points generation ---")
+            LOGGER.info("\n--- Running k-points generation ---")
             # Use default stdout/stderr to show output in real-time
             result = subprocess.run(
                 [script_path],
@@ -108,14 +110,14 @@ def generate_kpoints(
                 check=True,
                 # No stdout/stderr capture so the output appears in real-time
             )
-            print("--- k-points generation completed ---\n")
+            LOGGER.info("--- k-points generation completed ---\n")
 
             # Copy the generated KPOINTS file to the target directory
             kpoints_path = temp_dir_path / "KPOINTS"
             if kpoints_path.exists():
                 destination = vasp_directory / output_file
                 shutil.copy(kpoints_path, destination)
-                print(f"Created KPOINTS file: {destination}")
+                LOGGER.info(f"Created KPOINTS file: {destination}")
 
                 # If requested, display the content of the KPOINTS file
                 if (
@@ -123,10 +125,10 @@ def generate_kpoints(
                     and precalc_params.get("WRITE_LATTICE_VECTORS", "").upper()
                     == "TRUE"
                 ):
-                    print("\n--- KPOINTS content ---")
+                    LOGGER.info("\n--- KPOINTS content ---")
                     with open(destination, "r") as f:
-                        print(f.read())
-                    print("--- End of KPOINTS content ---\n")
+                        LOGGER.info(f.read())
+                    LOGGER.info("--- End of KPOINTS content ---\n")
 
                 return str(destination)
             else:
@@ -150,7 +152,7 @@ def _create_get_kpoints_script(jar_path):
 JAR_PATH="{jar_path}"
 
 # switch to control whether to call the server when the local
-# version is not found. (No longer supported, always FALSE)
+# [ NO LONGER SUPPORTED, always FALSE ]
 CALL_SERVER_IF_LOCAL_MISSING="FALSE"
 
 # The script assumes the minDistanceCollections is in the same 
@@ -160,7 +162,7 @@ LATTICE_COLLECTIONS="$JAR_PATH"
 ################################################################
 # Generally, user doesn't need touch everything below here.
 
-version="Python-wrapped C2020.11.25" 
+version="[ Python-wrapped C2020.11.25 ]" 
 echo "Running getKPoints script version" $version".";
 
 # This switch controls the information regarding grid generation output file.
@@ -290,7 +292,7 @@ def check_prerequisites():
         )
         # Java version is typically output to stderr
         java_output = java_process.stderr
-        print(f"Found Java: {java_output.splitlines()[0]}")
+        LOGGER.info(f"Found Java: {java_output.splitlines()[0]}")
     except (subprocess.CalledProcessError, FileNotFoundError):
         prerequisites_met = False
         issues.append("Java is not installed or not in the PATH.")
@@ -301,7 +303,7 @@ def check_prerequisites():
         prerequisites_met = False
         issues.append(f"GridGenerator.jar not found at {jar_path}")
     else:
-        print(f"Found GridGenerator.jar at: {jar_path}")
+        LOGGER.info(f"Found GridGenerator.jar at: {jar_path}")
 
     # Check if the database directory is available
     db_path = get_resource_path("minDistanceCollections")
@@ -309,7 +311,7 @@ def check_prerequisites():
         prerequisites_met = False
         issues.append(f"minDistanceCollections directory not found at {db_path}")
     else:
-        print(f"Found minDistanceCollections at: {db_path}")
+        LOGGER.info(f"Found minDistanceCollections at: {db_path}")
 
     if prerequisites_met:
         return True, "All prerequisites met."
