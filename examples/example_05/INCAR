@@ -1,0 +1,8 @@
+INCAR created by Atomic Simulation Environment
+ SIGMA = 0.100000
+ EDIFF = 1.00e-05
+ PREC = high
+ GGA = PE
+ ISMEAR = 1
+ NSW = 0
+ SYMPREC = 2e-5
