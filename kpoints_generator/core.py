@@ -20,7 +20,11 @@ def get_resource_path(resource_name):
 
 
 def generate_kpoints(
-    mindistance, vasp_directory=None, precalc_params=None, output_file="KPOINTS"
+    mindistance,
+    vasp_directory=None,
+    precalc_params=None,
+    output_file="KPOINTS",
+    save_precalc=True,
 ):
     """
     Generate a KPOINTS file using the Java-based GridGenerator.
@@ -35,6 +39,8 @@ def generate_kpoints(
         Additional parameters for the PRECALC file.
     output_file : str, optional
         Name of the output file. Defaults to 'KPOINTS'.
+    save_precalc : bool, optional
+        Whether to save the PRECALC file in the vasp_directory. Defaults to True.
 
     Returns:
     --------
@@ -51,62 +57,86 @@ def generate_kpoints(
         vasp_directory = Path.cwd()
     vasp_directory = Path(vasp_directory)
 
+    # Create PRECALC content
+    precalc_content = f"MINDISTANCE={mindistance}\n"
+    if precalc_params:
+        for key, value in precalc_params.items():
+            precalc_content += f"{key}={value}\n"
+
+    # Save PRECALC to the vasp_directory if requested
+    if save_precalc:
+        precalc_path_user = vasp_directory / "PRECALC"
+        with open(precalc_path_user, "w") as f:
+            f.write(precalc_content)
+        print(f"Saved PRECALC file to: {precalc_path_user}")
+
     # Create a temporary directory for processing
     with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = Path(temp_dir)
+
         # Copy necessary VASP files to the temp directory
         for file in ["POSCAR", "INCAR"]:
-            fpath = Path(vasp_directory, file)
+            fpath = vasp_directory / file
             if fpath.exists():
-                shutil.copy(fpath, temp_dir)
+                shutil.copy(fpath, temp_dir_path)
 
-        # Create PRECALC file
-        precalc_path = Path(temp_dir, "PRECALC")
+        # Create PRECALC file in the temp directory
+        precalc_path = temp_dir_path / "PRECALC"
         with open(precalc_path, "w") as f:
-            f.write(f"MINDISTANCE={mindistance}\n")
-            if precalc_params:
-                for key, value in precalc_params.items():
-                    f.write(f"{key}={value}\n")
+            f.write(precalc_content)
 
         # Get paths to Java resources
         jar_path = get_resource_path("GridGenerator.jar")
 
-        # Make sure the minDistanceCollections directory is in the same path as the JAR
-        # db_path = get_resource_path("minDistanceCollections")
-
         # Create custom getKPoints script with correct paths
         script_content = _create_get_kpoints_script(jar_path=Path(jar_path).parent)
 
-        script_path = Path(temp_dir, "getKPoints")
+        script_path = temp_dir_path / "getKPoints"
         with open(script_path, "w") as f:
             f.write(script_content)
 
         # Make the script executable
         script_path.chmod(0o755)
 
-        # Run the script
+        # Run the script with real-time output
         try:
+            print("\n--- Running k-points generation ---")
+            # Use default stdout/stderr to show output in real-time
             result = subprocess.run(
                 [script_path],
                 cwd=temp_dir,
                 check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
+                # No stdout/stderr capture so the output appears in real-time
             )
+            print("--- k-points generation completed ---\n")
 
             # Copy the generated KPOINTS file to the target directory
-            kpoints_path = Path(temp_dir) / "KPOINTS"
+            kpoints_path = temp_dir_path / "KPOINTS"
             if kpoints_path.exists():
-                destination = Path(vasp_directory) / output_file
+                destination = vasp_directory / output_file
                 shutil.copy(kpoints_path, destination)
-                return destination
+                print(f"Created KPOINTS file: {destination}")
+
+                # If requested, display the content of the KPOINTS file
+                if (
+                    precalc_params
+                    and precalc_params.get("WRITE_LATTICE_VECTORS", "").upper()
+                    == "TRUE"
+                ):
+                    print("\n--- KPOINTS content ---")
+                    with open(destination, "r") as f:
+                        print(f.read())
+                    print("--- End of KPOINTS content ---\n")
+
+                return str(destination)
             else:
                 raise KPointsGenerationError(
-                    f"KPOINTS file was not generated. Output: {result.stdout}\nError: {result.stderr}"
+                    "KPOINTS file was not generated. Check the output above for errors."
                 )
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
+            # No need to include stdout/stderr since they were already displayed in real-time
             raise KPointsGenerationError(
-                f"Error running getKPoints: {e.stdout}\n{e.stderr}"
+                "Error running getKPoints. Check the output above for details."
             )
 
 

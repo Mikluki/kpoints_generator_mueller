@@ -1,6 +1,6 @@
 import argparse
-import os
 import sys
+from pathlib import Path
 
 from .core import KPointsGenerationError, check_prerequisites, generate_kpoints
 
@@ -23,7 +23,7 @@ def main():
         "--directory",
         "-d",
         type=str,
-        default=os.getcwd(),
+        default=str(Path.cwd()),
         help="Directory containing VASP input files (default: current directory)",
     )
 
@@ -47,6 +47,12 @@ def main():
         "-p",
         action="append",
         help="Additional PRECALC parameters in KEY=VALUE format",
+    )
+
+    parser.add_argument(
+        "--no-save-precalc",
+        action="store_true",
+        help="Don't save the PRECALC file in the target directory",
     )
 
     args = parser.parse_args()
@@ -76,6 +82,7 @@ def main():
             vasp_directory=args.directory,
             precalc_params=precalc_params,
             output_file=args.output,
+            save_precalc=not args.no_save_precalc,
         )
         print(f"Successfully generated {kpoints_file}")
     except KPointsGenerationError as e:
