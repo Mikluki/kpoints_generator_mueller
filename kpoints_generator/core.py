@@ -1,7 +1,7 @@
-import shutil
+import os
 import subprocess
-import tempfile
 from pathlib import Path
+from typing import Optional
 
 import pkg_resources
 
@@ -19,6 +19,22 @@ def get_resource_path(resource_name):
     return pkg_resources.resource_filename(
         "kpoints_generator", f"java_resources/{resource_name}"
     )
+
+
+# Store paths to resources globally to avoid repeated lookups
+_JAR_PATH: Optional[str] = None
+_COLLECTIONS_PATH: Optional[str] = None
+
+
+def _init_resource_paths():
+    """Initialize global resource paths if not already done."""
+    global _JAR_PATH, _COLLECTIONS_PATH
+    if _JAR_PATH is None:
+        _JAR_PATH = get_resource_path("GridGenerator.jar")
+        # Get directory containing the JAR file
+        jar_dir = Path(_JAR_PATH).parent
+        # Set collections path to the directory CONTAINING minDistanceCollections (not the directory itself)
+        _COLLECTIONS_PATH = str(jar_dir)
 
 
 def generate_kpoints(
@@ -54,10 +70,25 @@ def generate_kpoints(
     KPointsGenerationError
         If the k-points generation fails.
     """
+    # Initialize global resource paths if needed
+    _init_resource_paths()
+
+    # Make sure global paths are initialized
+    if _JAR_PATH is None or _COLLECTIONS_PATH is None:
+        raise KPointsGenerationError("Failed to initialize resource paths")
+
     # Use current directory if no VASP directory is specified
     if vasp_directory is None:
         vasp_directory = Path.cwd()
-    vasp_directory = Path(vasp_directory)
+    else:
+        vasp_directory = Path(vasp_directory)
+
+    # Check for required input file (POSCAR) - fast fail if missing
+    poscar_path = vasp_directory / "POSCAR"
+    if not poscar_path.exists():
+        raise KPointsGenerationError(
+            "POSCAR file not found in the specified directory."
+        )
 
     # Create PRECALC content
     precalc_content = f"MINDISTANCE={mindistance}\n"
@@ -65,217 +96,76 @@ def generate_kpoints(
         for key, value in precalc_params.items():
             precalc_content += f"{key}={value}\n"
 
-    # Save PRECALC to the vasp_directory if requested
-    if save_precalc:
-        precalc_path_user = vasp_directory / "PRECALC"
-        with open(precalc_path_user, "w") as f:
-            f.write(precalc_content)
-        LOGGER.info(f"Saved PRECALC file to: {precalc_path_user}")
-
-    # Create a temporary directory for processing
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_dir_path = Path(temp_dir)
-
-        # Copy necessary VASP files to the temp directory
-        for file in ["POSCAR", "INCAR"]:
-            fpath = vasp_directory / file
-            if fpath.exists():
-                shutil.copy(fpath, temp_dir_path)
-
-        # Create PRECALC file in the temp directory
-        precalc_path = temp_dir_path / "PRECALC"
+    # Create PRECALC file in the vasp_directory
+    precalc_path = vasp_directory / "PRECALC"
+    try:
         with open(precalc_path, "w") as f:
             f.write(precalc_content)
 
-        # Get paths to Java resources
-        jar_path = get_resource_path("GridGenerator.jar")
+        # Construct Java command - reuse the same command structure for all calls
+        java_cmd = [
+            "java",
+            f"-DLATTICE_COLLECTIONS={_COLLECTIONS_PATH}",
+            "-Xms512m",
+            "-Xmx2048m",
+            "-jar",
+            _JAR_PATH,
+            str(vasp_directory),  # Use absolute path instead of "./"
+        ]
 
-        # Create custom getKPoints script with correct paths
-        script_content = _create_get_kpoints_script(jar_path=Path(jar_path).parent)
+        # Log the exact command for debugging
+        LOGGER.debug(f"Running command: {' '.join(java_cmd)}")
 
-        script_path = temp_dir_path / "getKPoints"
-        with open(script_path, "w") as f:
-            f.write(script_content)
+        # Run Java with real-time output display
+        subprocess.run(
+            java_cmd,
+            check=True,
+            # No stdout/stderr capture so the output appears in real-time
+        )
+        LOGGER.info("--- k-points generation completed ---\n")
 
-        # Make the script executable
-        script_path.chmod(0o755)
-
-        # Run the script with real-time output
-        try:
-            LOGGER.info("\n--- Running k-points generation ---")
-            # Use default stdout/stderr to show output in real-time
-            result = subprocess.run(
-                [script_path],
-                cwd=temp_dir,
-                check=True,
-                # No stdout/stderr capture so the output appears in real-time
-            )
-            LOGGER.info("--- k-points generation completed ---\n")
-
-            # Copy the generated KPOINTS file to the target directory
-            kpoints_path = temp_dir_path / "KPOINTS"
-            if kpoints_path.exists():
+        # Check if KPOINTS file was generated
+        kpoints_path = vasp_directory / "KPOINTS"
+        if kpoints_path.exists():
+            # Rename if a different output filename was requested
+            if output_file != "KPOINTS":
                 destination = vasp_directory / output_file
-                shutil.copy(kpoints_path, destination)
-                LOGGER.info(f"Created KPOINTS file: {destination}")
+                os.replace(
+                    kpoints_path, destination
+                )  # Using os.replace for atomic operation
+                kpoints_path = destination
 
-                # If requested, display the content of the KPOINTS file
-                if (
-                    precalc_params
-                    and precalc_params.get("WRITE_LATTICE_VECTORS", "").upper()
-                    == "TRUE"
-                ):
-                    LOGGER.info("\n--- KPOINTS content ---")
-                    with open(destination, "r") as f:
-                        LOGGER.info(f.read())
-                    LOGGER.info("--- End of KPOINTS content ---\n")
+            # Clean up the PRECALC file if not requested to save
+            if not save_precalc:
+                os.unlink(precalc_path)
 
-                return str(destination)
-            else:
-                raise KPointsGenerationError(
-                    "KPOINTS file was not generated. Check the output above for errors."
-                )
-        except subprocess.CalledProcessError:
-            # No need to include stdout/stderr since they were already displayed in real-time
+            return str(kpoints_path)
+        else:
             raise KPointsGenerationError(
-                "Error running getKPoints. Check the output above for details."
+                "KPOINTS file was not generated. Check VASP directory for errors."
             )
 
+    except subprocess.CalledProcessError as e:
+        # Clean up PRECALC if not saving and an error occurred
+        if not save_precalc and precalc_path.exists():
+            try:
+                os.unlink(precalc_path)
+            except OSError:
+                pass  # Ignore cleanup errors
 
-def _create_get_kpoints_script(jar_path):
-    """Create the getKPoints script with the correct paths."""
-    script = f"""#!/bin/bash
-# User's local variables
+        raise KPointsGenerationError(f"Error running Java GridGenerator: {e}")
+    except Exception as e:
+        # Clean up PRECALC if not saving and an error occurred
+        if not save_precalc and precalc_path.exists():
+            try:
+                os.unlink(precalc_path)
+            except OSError:
+                pass  # Ignore cleanup errors
 
-# The folder containing the GridGenerator.jar. 
-# Please give the absolute path.
-JAR_PATH="{jar_path}"
-
-# switch to control whether to call the server when the local
-# [ NO LONGER SUPPORTED, always FALSE ]
-CALL_SERVER_IF_LOCAL_MISSING="FALSE"
-
-# The script assumes the minDistanceCollections is in the same 
-# folder as GridGenerator. If not, users can set it themselves.
-LATTICE_COLLECTIONS="$JAR_PATH"
-
-################################################################
-# Generally, user doesn't need touch everything below here.
-
-version="[ Python-wrapped C2020.11.25 ]" 
-echo "Running getKPoints script version" $version".";
-
-# This switch controls the information regarding grid generation output file.
-# The default is "TRUE", replacing it with "FALSE" or any other values will turn it off.
-list_message="TRUE"
-
-# These format the messages accordingly
-warning_message()
-{{
-  echo "*** WARNING: $1 ***"
-}}
-
-error_message()
-{{
-  echo "*** ERROR: $1 ***"
-}}
-
-# Check for early kill signals.
-killed()
-{{
-  error_message "Command was terminated by user."
-}}
-trap 'killed' 1 2 3
-
-failed_to_connect()
-{{
-  error_message "There is a problem connecting to the database."
-}}
-trap 'failed_to_connect' 6 7 10 27
-
-# Generate grid for VASP using local JAR file
-generate_grid_for_vasp_jar() 
-{{
-    if ! java -version > /dev/null 2>&1 ; then
-        error_message "Local installation of JAVA is not found."
-        return 1
-    fi
-
-    if [ -z ${{JAR_PATH}} ] || [ ! -e ${{JAR_PATH}}/GridGenerator.jar ]; then
-        error_message "Local installation of k-pointGridGenerator is not found."
-        return 1
-    fi
-
-    echo "Generating grid using local installation at ${{JAR_PATH}} ..."
-    if [ ! -f INCAR ]; then
-        warning_message "No INCAR file detected. Using only symmetry information from structure file."
-    fi
-
-    java -DLATTICE_COLLECTIONS="${{LATTICE_COLLECTIONS}}" -Xms512m -Xmx2048m -jar ${{JAR_PATH}}/GridGenerator.jar ./
-    return 0
-}}
-
-# Check variables and decide whether to use local JAR 
-generate_grid_for_vasp(){{
-    generate_grid_for_vasp_jar
-    if [ $? -ne 0 ]; then
-        error_message "Failed to generate k-points grid."
-        exit 1
-    fi
-}}
-
-# Check if PRECALC file exists
-precalc_default="FALSE"
-check_precalc()
-{{
-  if [ -f PRECALC ]; then 
-    precalc_default="FALSE"
-  else # In the case PRECALC does not exists, create an empty file to feed in
-    warning_message "No PRECALC file detected. Using default values."
-    touch PRECALC
-    precalc_default="TRUE"
-  fi   
-}}
-
-# Write output to stdout
-output_to_stdout() {{
-  if [ -e KPOINTS ]; then
-    echo "=============== CONTENT OF KPOINTS ==============="
-    cat KPOINTS
-  fi
-}}
-
-################################# main() ######################################
-check_precalc
-
-# Check if POSCAR exists
-if [ ! -f POSCAR ]; then
-    error_message "POSCAR file not found! Exit."
-    exit 1
-fi
-
-# Generate the grid
-generate_grid_for_vasp
-
-# Final cleanup
-if [ "$precalc_default" == "TRUE" ]; then
-  rm PRECALC
-fi
-
-# Output KPOINTS content if requested
-if [ "$precalc_default" == "FALSE" ] && [ -e PRECALC ]; then
-  write_vectors=$( grep -iE "^[ ]*WRITE_LATTICE_VECTORS" ./PRECALC 2> /dev/null | \\
-    awk -F "[=#]" '{{ print tolower($2) }}' | tr -d [:space:] 2> /dev/null )
-  if [ ! -z $write_vectors ] && [ $write_vectors == "true" ]; then
-    output_to_stdout
-  fi
-fi
-
-echo "Finished."
-"""
-    return script
+        raise KPointsGenerationError(f"Unexpected error: {e}")
 
 
+# This function can be called once at module import time
 def check_prerequisites():
     """Check if all prerequisites for the k-points generation are met."""
     prerequisites_met = True
@@ -297,21 +187,32 @@ def check_prerequisites():
         prerequisites_met = False
         issues.append("Java is not installed or not in the PATH.")
 
-    # Check if the JAR file is available
-    jar_path = get_resource_path("GridGenerator.jar")
-    if not Path(jar_path).exists():
-        prerequisites_met = False
-        issues.append(f"GridGenerator.jar not found at {jar_path}")
-    else:
-        LOGGER.info(f"Found GridGenerator.jar at: {jar_path}")
+    # Initialize and check resource paths
+    _init_resource_paths()
 
-    # Check if the database directory is available
-    db_path = get_resource_path("minDistanceCollections")
-    if not Path(db_path).exists():
+    # Check if the resource paths were initialized properly
+    if _JAR_PATH is None:
         prerequisites_met = False
-        issues.append(f"minDistanceCollections directory not found at {db_path}")
+        issues.append("Failed to initialize path to GridGenerator.jar")
+    # Check if the JAR file is available
+    elif not Path(_JAR_PATH).exists():
+        prerequisites_met = False
+        issues.append(f"GridGenerator.jar not found at {_JAR_PATH}")
     else:
-        LOGGER.info(f"Found minDistanceCollections at: {db_path}")
+        LOGGER.info(f"Found GridGenerator.jar at: {_JAR_PATH}")
+
+    # Check if the collections path was initialized properly
+    if _COLLECTIONS_PATH is None:
+        prerequisites_met = False
+        issues.append("Failed to initialize path to minDistanceCollections")
+    # Check if the database directory is available
+    elif not Path(_COLLECTIONS_PATH).exists():
+        prerequisites_met = False
+        issues.append(
+            f"minDistanceCollections directory not found at {_COLLECTIONS_PATH}"
+        )
+    else:
+        LOGGER.info(f"Found minDistanceCollections at: {_COLLECTIONS_PATH}")
 
     if prerequisites_met:
         return True, "All prerequisites met."
