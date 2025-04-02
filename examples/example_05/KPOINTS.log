@@ -1,0 +1,33 @@
+Precision : 3.0E-6
+AngleTolerance: 0.001
+Generator version 2020.11.25. 
+WRITE_LATTICE_VECTORS=FALSE detected. If you are using VASP.6, we recommend setting WRITE_LATTICE_VECTORS=TRUE.
+2025-04-02_17.05.25.000190     | Finished, time spent: 229 ms.
+
+-------------------------SUMMARY-------------------------
+MINTOTALPOINTS = 1
+MINDISTANCE = 55.0
+HEADER = SIMPLE
+REMOVE_SYMMETRY = none # As listed in the PRECALC file
+INCLUDEGAMMA = AUTO
+KPPRA = 1
+TRICLINIC_SEARCH_DEPTH = 729
+MONOCLINIC_SEARCH_DEPTH = 1728
+WRITE_LATTICE_VECTORS = false
+---END_PRECALC_PARAMETERS---
+Scaling_Lattice_Times = 1
+Remove_Symmetry_Used_in_Grid_Generation = none
+Arithmetic_Group_Number = 49
+Format = -vasp
+Generator_Version = 2020.11.25
+MessageList = true
+Read_INCAR_Time = 17 ms.
+Read_PRECALC_Time = 0 ms.
+Read_Structure_Time = 6 ms.
+Gap_Adjust_Time = 2 ms.
+Selective_Dynamics_Adjustment_Time = null ms.
+Magnetic_Moment_Adjustment_Time = null ms.
+KPoints_IO_Time = null ms.
+Grid_Generation_Time = 179 ms.
+Total_Grid_Generation_Time = 229 ms.
+Request_Completed = TRUE
