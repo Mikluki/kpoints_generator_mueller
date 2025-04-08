@@ -1,0 +1,1 @@
+recursive-include kpoints_generator/java_resources/minDistanceCollections *
