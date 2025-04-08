@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kpoints_generator"
-version = "0.2.0"
+version = "0.3.0"
 description = "A Python wrapper for the k-point grid generator Java package"
 readme = "README.md"
 authors = [{name = "Mik Luki"}]
