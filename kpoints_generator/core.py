@@ -1,7 +1,7 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Dict
 
 import pkg_resources
 
@@ -22,8 +22,8 @@ def get_resource_path(resource_name):
 
 
 # Store paths to resources globally to avoid repeated lookups
-_JAR_PATH: Optional[str] = None
-_COLLECTIONS_PATH: Optional[str] = None
+_JAR_PATH: str | None = None
+_COLLECTIONS_PATH: str | None = None
 
 
 def _init_resource_paths():
@@ -38,11 +38,11 @@ def _init_resource_paths():
 
 
 def generate_kpoints(
-    mindistance,
-    vasp_directory=None,
-    precalc_params=None,
-    output_file="KPOINTS",
-    save_precalc=True,
+    mindistance: float,
+    vasp_directory: Path | str | None = None,
+    precalc_params: Dict | None = None,
+    output_file: str = "KPOINTS",
+    save_precalc: bool = True,
 ):
     """
     Generate a KPOINTS file using the Java-based GridGenerator.
